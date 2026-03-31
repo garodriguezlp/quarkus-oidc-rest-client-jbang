@@ -19,15 +19,23 @@ The app simulates interacting with the [Cloud Foundry API v3](https://v3-apidocs
 
 ## Prerequisites
 
-- **Java 17+** (tested on Java 25 LTS)
-- **JBang** — install via `sdk install jbang` or `choco install jbang`
+- **Java 17+**
 - **Internet access** on first run (JBang downloads Quarkus/WireMock JARs from Maven Central once, then caches them)
+
+No JBang installation required — the repository ships with a [JBang wrapper](https://www.jbang.dev/documentation/guide/latest/usage.html#jbang-wrapper) (`jbang` / `jbang.cmd` / `jbang.ps1`) that bootstraps JBang automatically.
 
 ---
 
 ## Quick Start
 
 ### 1 — Start WireMock (terminal 1)
+
+```bash
+./jbang run start-wiremock.sh   # Linux / macOS
+jbang.cmd run start-wiremock.sh # Windows (cmd)
+```
+
+Or simply:
 
 ```bash
 bash start-wiremock.sh
@@ -45,7 +53,8 @@ Watch the console for matched request logs — these confirm the full auth dance
 ### 2 — Run the app (terminal 2)
 
 ```bash
-jbang CfOrgs.java
+./jbang CfOrgs.java       # Linux / macOS
+jbang.cmd CfOrgs.java    # Windows (cmd)
 ```
 
 Expected output:
@@ -73,7 +82,7 @@ export QUARKUS_OIDC_CLIENT_GRANT_OPTIONS_PASSWORD_USERNAME=me@example.com
 export QUARKUS_OIDC_CLIENT_GRANT_OPTIONS_PASSWORD_PASSWORD=mysecret
 export QUARKUS_REST_CLIENT_CF__API_URL=https://api.cf.example.com
 
-jbang CfOrgs.java
+./jbang CfOrgs.java
 ```
 
 > **Note on the double underscore in `CF__API_URL`:** SmallRye Config maps hyphens in config key segments to `__` in environment variable names. The config key `cf-api` → `CF__API`.
@@ -83,7 +92,7 @@ jbang CfOrgs.java
 ## How It Works
 
 ```
-jbang CfOrgs.java
+./jbang CfOrgs.java
         │
         └─► Quarkus boots (picocli command)
                 │
@@ -113,7 +122,11 @@ quarkus.oidc-client.credentials.client-secret.value=   ← intentionally empty
 ## Project Structure
 
 ```
-CfOrgs.java          # The entire application — JBang entry point
+CfOrgs.java                      # The entire application — JBang entry point
+jbang                            # JBang wrapper (Linux / macOS)
+jbang.cmd                        # JBang wrapper (Windows cmd)
+jbang.ps1                        # JBang wrapper (PowerShell)
+.jbang/jbang.jar                 # Bundled JBang bootstrap JAR
 start-wiremock.sh                # Starts WireMock with pre-built stubs
 wiremock-data/
   mappings/
