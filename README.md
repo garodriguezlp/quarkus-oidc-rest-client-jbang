@@ -37,14 +37,18 @@ a [JBang wrapper](https://www.jbang.dev/documentation/guide/latest/usage.html#jb
 ### 1 — Start WireMock (terminal 1)
 
 ```bash
-./jbang run start-wiremock.sh   # Linux / macOS
-jbang.cmd run start-wiremock.sh # Windows (cmd)
+bash start-wiremock.sh          # Linux / macOS (or Git Bash on Windows)
 ```
 
-Or simply:
+The script starts WireMock from local stubs on port `9090`.
+
+Alternative (without the script):
 
 ```bash
-bash start-wiremock.sh
+./jbang org.wiremock:wiremock-standalone:3.5.3 \
+  --port 9090 \
+  --root-dir ./wiremock-data \
+  --verbose
 ```
 
 WireMock starts on **port 9090** and loads pre-built stubs from `wiremock-data/mappings/`:
@@ -60,7 +64,7 @@ Watch the console for matched request logs — these confirm the full auth dance
 
 ```bash
 ./jbang CfOrgs.java       # Linux / macOS
-jbang.cmd CfOrgs.java    # Windows (cmd)
+jbang.cmd CfOrgs.java     # Windows (cmd)
 ```
 
 Expected output:
@@ -151,7 +155,7 @@ If you have a real CF environment and want to capture live traffic instead of us
 
 ```bash
 VERSION=3.5.3
-jbang org.wiremock:wiremock-standalone:${VERSION} \
+./jbang org.wiremock:wiremock-standalone:${VERSION} \
   --port 9090 \
   --proxy-all "https://api.cf.example.com" \
   --record-mappings \
