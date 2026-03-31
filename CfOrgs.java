@@ -2,7 +2,7 @@
 
 //JAVA 17+
 
-//DEPS io.quarkus:quarkus-bom:3.15.7@pom
+//DEPS io.quarkus:quarkus-bom:3.16.4@pom
 //DEPS io.quarkus:quarkus-picocli
 //DEPS io.quarkus:quarkus-rest-client-oidc-filter
 //DEPS io.quarkus:quarkus-rest-client-jackson
