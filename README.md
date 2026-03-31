@@ -1,19 +1,23 @@
 # quarkus-oidc-rest-client-jbang
 
-A self-contained educational POC that demonstrates how to wire a **Quarkus declarative REST client with automatic OIDC bearer-token injection**, packaged as a single Java file runnable via [JBang](https://www.jbang.dev/) — no build tool, no project scaffolding.
+A self-contained educational POC that demonstrates how to wire a **Quarkus declarative REST client with automatic OIDC
+bearer-token injection**, packaged as a single Java file runnable via [JBang](https://www.jbang.dev/) — no build tool,
+no project scaffolding.
 
-The app targets the [Cloud Foundry API v3](https://v3-apidocs.cloudfoundry.org/): it authenticates against CF UAA using the Resource Owner Password Credentials grant and lists organizations. [WireMock](https://wiremock.org/) stands in for the live CF environment so the demo works fully offline.
+The app targets the [Cloud Foundry API v3](https://v3-apidocs.cloudfoundry.org/): it authenticates against CF UAA using
+the Resource Owner Password Credentials grant and lists organizations. [WireMock](https://wiremock.org/) stands in for
+the live CF environment so the demo works fully offline.
 
 ---
 
 ## Concepts
 
-| Layer | What it demonstrates |
-|---|---|
-| **JBang** | Running a Quarkus app from a single `.java` file with zero project scaffolding |
-| **Quarkus OIDC Client** | Acquiring and auto-refreshing a bearer token using the `password` grant |
+| Layer                       | What it demonstrates                                                                                                                                                            |
+|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **JBang**                   | Running a Quarkus app from a single `.java` file with zero project scaffolding                                                                                                  |
+| **Quarkus OIDC Client**     | Acquiring and auto-refreshing a bearer token using the `password` grant                                                                                                         |
 | **Declarative REST Client** | `@RegisterRestClient` + `@RegisterProvider(OidcClientRequestReactiveFilter.class)` — the framework injects `Authorization: Bearer …` automatically before each outgoing request |
-| **WireMock** | Stubbing both the UAA token endpoint (`POST /oauth/token`) and the CF API (`GET /v3/organizations`) without needing a live CF instance |
+| **WireMock**                | Stubbing both the UAA token endpoint (`POST /oauth/token`) and the CF API (`GET /v3/organizations`) without needing a live CF instance                                          |
 
 ---
 
@@ -22,7 +26,9 @@ The app targets the [Cloud Foundry API v3](https://v3-apidocs.cloudfoundry.org/)
 - **Java 17+**
 - **Internet access** on first run (JBang downloads Quarkus/WireMock JARs from Maven Central once, then caches them)
 
-No JBang installation required — the repository ships with a [JBang wrapper](https://www.jbang.dev/documentation/guide/latest/usage.html#jbang-wrapper) (`jbang` / `jbang.cmd` / `jbang.ps1`) that bootstraps JBang automatically.
+No JBang installation required — the repository ships with
+a [JBang wrapper](https://www.jbang.dev/documentation/guide/latest/usage.html#jbang-wrapper) (`jbang` / `jbang.cmd` /
+`jbang.ps1`) that bootstraps JBang automatically.
 
 ---
 
@@ -43,9 +49,9 @@ bash start-wiremock.sh
 
 WireMock starts on **port 9090** and loads pre-built stubs from `wiremock-data/mappings/`:
 
-| Stub | What it returns |
-|---|---|
-| `POST /oauth/token` | A fake `access_token` as a CF UAA would |
+| Stub                    | What it returns                                   |
+|-------------------------|---------------------------------------------------|
+| `POST /oauth/token`     | A fake `access_token` as a CF UAA would           |
 | `GET /v3/organizations` | Two fake orgs; requires `Authorization: Bearer …` |
 
 Watch the console for matched request logs — these confirm the full auth dance is happening.
@@ -85,7 +91,8 @@ export QUARKUS_REST_CLIENT_CF__API_URL=https://api.cf.example.com
 ./jbang CfOrgs.java
 ```
 
-> **Note on the double underscore in `CF__API_URL`:** SmallRye Config maps hyphens in config key segments to `__` in environment variable names. The config key `cf-api` → `CF__API`.
+> **Note on the double underscore in `CF__API_URL`:** SmallRye Config maps hyphens in config key segments to `__` in
+> environment variable names. The config key `cf-api` → `CF__API`.
 
 ---
 
@@ -110,7 +117,8 @@ export QUARKUS_REST_CLIENT_CF__API_URL=https://api.cf.example.com
 
 ### CF UAA Quirks
 
-CF's UAA uses a public client (`client_id=cf`, empty `client_secret`). Credentials are sent in the POST body (`method=post`) rather than HTTP Basic Auth. The Quarkus OIDC client handles this via:
+CF's UAA uses a public client (`client_id=cf`, empty `client_secret`). Credentials are sent in the POST body (
+`method=post`) rather than HTTP Basic Auth. The Quarkus OIDC client handles this via:
 
 ```
 quarkus.oidc-client.credentials.client-secret.method=post
@@ -138,7 +146,8 @@ wiremock-data/
 
 ## WireMock Recording Mode
 
-If you have a real CF environment and want to capture live traffic instead of using the pre-built stubs, edit `start-wiremock.sh` and switch to recording mode:
+If you have a real CF environment and want to capture live traffic instead of using the pre-built stubs, edit
+`start-wiremock.sh` and switch to recording mode:
 
 ```bash
 VERSION=3.5.3
@@ -156,13 +165,15 @@ WireMock writes captured interactions to `wiremock-data/mappings/` for offline r
 
 ## Key Dependencies
 
-| Artifact | Purpose |
-|---|---|
-| `quarkus-picocli` | CLI entry point |
+| Artifact                          | Purpose                                                                                                    |
+|-----------------------------------|------------------------------------------------------------------------------------------------------------|
+| `quarkus-picocli`                 | CLI entry point                                                                                            |
 | `quarkus-rest-client-oidc-filter` | Brings in `OidcClientRequestReactiveFilter` — the reactive filter that transparently injects bearer tokens |
-| `quarkus-rest-client-jackson` | Reactive REST client with Jackson JSON mapping |
+| `quarkus-rest-client-jackson`     | Reactive REST client with Jackson JSON mapping                                                             |
 
-> **Quarkus version note:** The `quarkus-rest-client-oidc-filter` and `quarkus-rest-client-jackson` artifacts replaced the older `quarkus-oidc-client-reactive-filter` and `quarkus-rest-client-reactive-jackson` respectively. This project targets **Quarkus 3.15.7** (LTS).
+> **Quarkus version note:** The `quarkus-rest-client-oidc-filter` and `quarkus-rest-client-jackson` artifacts replaced
+> the older `quarkus-oidc-client-reactive-filter` and `quarkus-rest-client-reactive-jackson` respectively. This project
+> targets **Quarkus 3.15.7** (LTS).
 
 ---
 
