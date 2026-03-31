@@ -9,6 +9,19 @@
 
 //Q:CONFIG quarkus.banner.enabled=false
 //Q:CONFIG quarkus.log.level=WARN
+//Q:CONFIG quarkus.log.min-level=TRACE
+//Q:CONFIG quarkus.log.console.level=TRACE
+
+// ---------------------------------------------------------------------------
+// HTTP traffic logging — troubleshooting (shows full req/resp + sensitive data)
+// ---------------------------------------------------------------------------
+// REST client: log request + response headers and body
+//Q:CONFIG quarkus.rest-client.logging.scope=request-response
+//Q:CONFIG quarkus.rest-client.logging.body-limit=100000
+//Q:CONFIG quarkus.log.category."org.jboss.resteasy.reactive.client.logging".level=DEBUG
+// OIDC client: log token endpoint calls (includes credentials + access token)
+//Q:CONFIG quarkus.log.category."io.quarkus.oidc.client".level=TRACE
+//Q:CONFIG quarkus.log.category."io.quarkus.oidc".level=TRACE
 
 // ---------------------------------------------------------------------------
 // OIDC Client — CF UAA, Resource Owner Password Credentials grant
