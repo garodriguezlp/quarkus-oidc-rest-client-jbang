@@ -175,9 +175,10 @@ WireMock writes captured interactions to `wiremock-data/mappings/` for offline r
 | `quarkus-rest-client-oidc-filter` | Brings in `OidcClientRequestReactiveFilter` — the reactive filter that transparently injects bearer tokens |
 | `quarkus-rest-client-jackson`     | Reactive REST client with Jackson JSON mapping                                                             |
 
-> **Quarkus version note:** The `quarkus-rest-client-oidc-filter` and `quarkus-rest-client-jackson` artifacts replaced
-> the older `quarkus-oidc-client-reactive-filter` and `quarkus-rest-client-reactive-jackson` respectively. This project
-> targets **Quarkus 3.15.7** (LTS).
+> **Quarkus version note:** This demo is pinned to **Quarkus 3.16.4**.
+> In our tests, upgrading to Quarkus 3.17+ caused the REST client property
+> `quarkus.rest-client."cf-api".url` to stop working in this setup.
+> The exact root cause is currently unknown.
 
 ---
 
