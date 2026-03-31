@@ -176,8 +176,8 @@ WireMock writes captured interactions to `wiremock-data/mappings/` for offline r
 | `quarkus-rest-client-jackson`     | Reactive REST client with Jackson JSON mapping                                                             |
 
 > **Quarkus version note:** This demo is pinned to **Quarkus 3.16.4**.
-> If you upgrade to 3.17+, update the REST client property from
-> `quarkus.rest-client."cf-api".url` to `quarkus.rest-client.cf-api.url`.
+> For Quarkus 3.17 and later, use `quarkus.rest-client.cf-api.url`
+> instead of `quarkus.rest-client."cf-api".url`.
 
 ---
 
