@@ -1,8 +1,8 @@
-# quarkus-oidc-jbang
+# quarkus-oidc-rest-client-jbang
 
-A self-contained educational POC that demonstrates a **declarative Quarkus REST client with automatic OIDC token management**, running as a single Java file via [JBang](https://www.jbang.dev/).
+A self-contained educational POC that demonstrates how to wire a **Quarkus declarative REST client with automatic OIDC bearer-token injection**, packaged as a single Java file runnable via [JBang](https://www.jbang.dev/) — no build tool, no project scaffolding.
 
-The app simulates interacting with the [Cloud Foundry API v3](https://v3-apidocs.cloudfoundry.org/) — specifically obtaining a bearer token via CF UAA's Resource Owner Password Credentials grant and listing organizations — with [WireMock](https://wiremock.org/) standing in for the real CF environment.
+The app targets the [Cloud Foundry API v3](https://v3-apidocs.cloudfoundry.org/): it authenticates against CF UAA using the Resource Owner Password Credentials grant and lists organizations. [WireMock](https://wiremock.org/) stands in for the live CF environment so the demo works fully offline.
 
 ---
 
