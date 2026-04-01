@@ -1,0 +1,54 @@
+{
+  "name": "CF API v3 — GET /v3/spaces",
+  "request": {
+    "method": "GET",
+    "urlPath": "/v3/spaces",
+    "headers": {
+      "Authorization": {
+        "matches": "Bearer .+"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "pagination": {
+        "total_results": 3,
+        "total_pages": 1,
+        "next": null
+      },
+      "resources": [
+        {
+          "guid": "space-guid-0001",
+          "name": "dev",
+          "relationships": {
+            "organization": {
+              "data": { "guid": "org-guid-0001" }
+            }
+          }
+        },
+        {
+          "guid": "space-guid-0002",
+          "name": "staging",
+          "relationships": {
+            "organization": {
+              "data": { "guid": "org-guid-0001" }
+            }
+          }
+        },
+        {
+          "guid": "space-guid-0003",
+          "name": "prod",
+          "relationships": {
+            "organization": {
+              "data": { "guid": "org-guid-0002" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

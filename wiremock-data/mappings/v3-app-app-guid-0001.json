@@ -1,0 +1,27 @@
+{
+  "name": "CF API v3 — GET /v3/apps/app-guid-0001 (single app)",
+  "request": {
+    "method": "GET",
+    "urlPath": "/v3/apps/app-guid-0001",
+    "headers": {
+      "Authorization": {
+        "matches": "Bearer .+"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "guid": "app-guid-0001",
+      "name": "my-app",
+      "relationships": {
+        "space": {
+          "data": { "guid": "space-guid-0001" }
+        }
+      }
+    }
+  }
+}

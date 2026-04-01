@@ -37,3 +37,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Generated .env files (output of CfEnv.java env command)
+*.env

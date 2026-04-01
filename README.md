@@ -5,8 +5,9 @@ bearer-token injection**, packaged as a single Java file runnable via [JBang](ht
 no project scaffolding.
 
 The app targets the [Cloud Foundry API v3](https://v3-apidocs.cloudfoundry.org/): it authenticates against CF UAA using
-the Resource Owner Password Credentials grant and lists organizations. [WireMock](https://wiremock.org/) stands in for
-the live CF environment so the demo works fully offline.
+the Resource Owner Password Credentials grant and provides two CLI commands — `apps` (list all apps across orgs and
+spaces) and `env` (export an app's environment variables to a `.env` file).
+[WireMock](https://wiremock.org/) stands in for the live CF environment so the demo works fully offline.
 
 ---
 
@@ -15,9 +16,11 @@ the live CF environment so the demo works fully offline.
 | Layer                       | What it demonstrates                                                                                                                                                            |
 |-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **JBang**                   | Running a Quarkus app from a single `.java` file with zero project scaffolding                                                                                                  |
-| **Quarkus OIDC Client**     | Acquiring and auto-refreshing a bearer token using the `password` grant                                                                                                         |
-| **Declarative REST Client** | `@RegisterRestClient` + `@RegisterProvider(OidcClientRequestReactiveFilter.class)` — the framework injects `Authorization: Bearer …` automatically before each outgoing request |
-| **WireMock**                | Stubbing both the UAA token endpoint (`POST /oauth/token`) and the CF API (`GET /v3/organizations`) without needing a live CF instance                                          |
+| **Quarkus Picocli**         | Multi-level CLI with subcommands (`apps`, `env`)                                                                                                                                |
+| **Declarative REST Client** | `@RegisterRestClient` + `@RegisterProvider(CfAuthFilter.class)` — the filter injects `Authorization: Bearer …` automatically before each outgoing request                      |
+| **Parallel fetching**       | `CompletableFuture` to fetch orgs, spaces, and apps concurrently; results joined in memory                                                                                      |
+| **Pagination**              | Generic paginator that follows `pagination.next` until null, accumulating all resources                                                                                          |
+| **WireMock**                | Stubbing the UAA token endpoint and all CF API endpoints without needing a live CF instance                                                                                     |
 
 ---
 
@@ -42,43 +45,60 @@ bash start-wiremock.sh          # Linux / macOS (or Git Bash on Windows)
 
 The script starts WireMock from local stubs on port `9090`.
 
-Alternative (without the script):
+WireMock loads pre-built stubs from `wiremock-data/mappings/`:
 
-```bash
-./jbang org.wiremock:wiremock-standalone:3.5.3 \
-  --port 9090 \
-  --root-dir ./wiremock-data \
-  --verbose
-```
-
-WireMock starts on **port 9090** and loads pre-built stubs from `wiremock-data/mappings/`:
-
-| Stub                    | What it returns                                   |
-|-------------------------|---------------------------------------------------|
-| `POST /oauth/token`     | A fake `access_token` as a CF UAA would           |
-| `GET /v3/organizations` | Two fake orgs; requires `Authorization: Bearer …` |
-
-Watch the console for matched request logs — these confirm the full auth dance is happening.
+| Stub                                        | What it returns                                              |
+|---------------------------------------------|--------------------------------------------------------------|
+| `POST /oauth/token`                         | A fake `access_token` as a CF UAA would                      |
+| `GET /v3/organizations`                     | 2 fake orgs                                                  |
+| `GET /v3/spaces`                            | 3 fake spaces linked to the above orgs                       |
+| `GET /v3/apps`                              | 3 fake apps linked to the above spaces                       |
+| `GET /v3/apps/app-guid-0001`                | Single app detail                                            |
+| `GET /v3/apps/app-guid-0001/environment_variables` | Env vars for `my-app`                               |
 
 ### 2 — Run the app (terminal 2)
 
+#### List all apps
+
 ```bash
-./jbang CfOrgs.java       # Linux / macOS
-jbang.cmd CfOrgs.java     # Windows (cmd)
+./jbang CfEnv.java apps       # Linux / macOS
+jbang.cmd CfEnv.java apps     # Windows (cmd)
 ```
 
 Expected output:
 
 ```
-Fetching organizations from Cloud Foundry API...
-
-Total: 2 organization(s) across 1 page(s)
-
-  a1b2c3d4-e5f6-7890-abcd-ef1234567890  my-org
-  b2c3d4e5-f6a7-8901-bcde-f12345678901  system
+ORG                  SPACE           APP NAME                       UUID
+my-org               dev             my-app                         app-guid-0001
+system               prod            api                            app-guid-0002
+my-org               staging         worker                         app-guid-0003
 ```
 
-After the first run, JBang caches the compiled Quarkus app — subsequent runs start in seconds.
+#### Export app environment variables
+
+```bash
+./jbang CfEnv.java env app-guid-0001
+```
+
+Expected output:
+
+```
+Written to my-app-app-guid-0001.env
+```
+
+The generated `my-app-app-guid-0001.env` file:
+
+```
+APP_ENV=development
+DATABASE_URL=postgres://db.internal:5432/myapp
+REDIS_URL=redis://cache.internal:6379
+```
+
+Use `--output` / `-o` to override the output file path:
+
+```bash
+./jbang CfEnv.java env app-guid-0001 --output /tmp/myapp.env
+```
 
 ---
 
@@ -87,12 +107,13 @@ After the first run, JBang caches the compiled Quarkus app — subsequent runs s
 Override the defaults via environment variables before running the app:
 
 ```bash
-export QUARKUS_OIDC_CLIENT_AUTH_SERVER_URL=https://uaa.cf.example.com
-export QUARKUS_OIDC_CLIENT_GRANT_OPTIONS_PASSWORD_USERNAME=me@example.com
-export QUARKUS_OIDC_CLIENT_GRANT_OPTIONS_PASSWORD_PASSWORD=mysecret
+export QUARKUS_REST_CLIENT_UAA_URL=https://uaa.cf.example.com
 export QUARKUS_REST_CLIENT_CF__API_URL=https://api.cf.example.com
+export CF_USERNAME=me@example.com
+export CF_PASSWORD=mysecret
 
-./jbang CfOrgs.java
+./jbang CfEnv.java apps
+./jbang CfEnv.java env <app-uuid>
 ```
 
 > **Note on the double underscore in `CF__API_URL`:** SmallRye Config maps hyphens in config key segments to `__` in
@@ -103,20 +124,34 @@ export QUARKUS_REST_CLIENT_CF__API_URL=https://api.cf.example.com
 ## How It Works
 
 ```
-./jbang CfOrgs.java
+./jbang CfEnv.java apps
         │
-        └─► Quarkus boots (picocli command)
+        └─► Quarkus boots (picocli command: apps)
                 │
-                └─► @Inject @RestClient CloudFoundryClient.getOrganizations()
+                ├─► CompletableFuture → GET /v3/organizations  ─┐
+                ├─► CompletableFuture → GET /v3/spaces          ├─ (parallel)
+                └─► CompletableFuture → GET /v3/apps            ─┘
                           │
-                          └─► OidcClientRequestReactiveFilter intercepts
+                          └─► Each request: CfAuthFilter intercepts
                                     │
                                     ├─► POST /oauth/token  (grant_type=password, client_id=cf)
                                     │         └─► receives access_token
                                     │
-                                    └─► GET /v3/organizations
+                                    └─► GET /v3/...
                                               Header: Authorization: Bearer <token>
-                                              └─► parses JSON → prints orgs
+                          │
+                          └─► Join results → print ORG / SPACE / APP NAME / UUID table
+```
+
+```
+./jbang CfEnv.java env <app-uuid>
+        │
+        └─► Quarkus boots (picocli command: env)
+                │
+                ├─► GET /v3/apps/<app-uuid>                        → fetch app name
+                └─► GET /v3/apps/<app-uuid>/environment_variables  → fetch env vars
+                          │
+                          └─► write KEY=VALUE lines to <app-name>-<app-uuid>.env
 ```
 
 ### CF UAA Quirks
@@ -134,16 +169,21 @@ quarkus.oidc-client.credentials.client-secret.value=   ← intentionally empty
 ## Project Structure
 
 ```
-CfOrgs.java                      # The entire application — JBang entry point
-jbang                            # JBang wrapper (Linux / macOS)
-jbang.cmd                        # JBang wrapper (Windows cmd)
-jbang.ps1                        # JBang wrapper (PowerShell)
-.jbang/jbang.jar                 # Bundled JBang bootstrap JAR
-start-wiremock.sh                # Starts WireMock with pre-built stubs
+CfEnv.java                              # The entire application — JBang entry point
+jbang                                   # JBang wrapper (Linux / macOS)
+jbang.cmd                               # JBang wrapper (Windows cmd)
+jbang.ps1                               # JBang wrapper (PowerShell)
+.jbang/jbang.jar                        # Bundled JBang bootstrap JAR
+start-wiremock.sh                       # Starts WireMock with pre-built stubs
 wiremock-data/
   mappings/
-    oauth-token.json             # Stub: POST /oauth/token → fake bearer token
-    v3-organizations.json        # Stub: GET /v3/organizations → two fake orgs
+    oauth-token.json                    # Stub: POST /oauth/token → fake bearer token
+    oauth-token-reject.json             # Stub: POST /oauth/token (fallback) → 401
+    v3-organizations.json               # Stub: GET /v3/organizations → 2 orgs
+    v3-spaces.json                      # Stub: GET /v3/spaces → 3 spaces
+    v3-apps.json                        # Stub: GET /v3/apps → 3 apps
+    v3-app-app-guid-0001.json           # Stub: GET /v3/apps/app-guid-0001
+    v3-app-env-app-guid-0001.json       # Stub: GET /v3/apps/app-guid-0001/environment_variables
 ```
 
 ---
@@ -169,11 +209,10 @@ WireMock writes captured interactions to `wiremock-data/mappings/` for offline r
 
 ## Key Dependencies
 
-| Artifact                          | Purpose                                                                                                    |
-|-----------------------------------|------------------------------------------------------------------------------------------------------------|
-| `quarkus-picocli`                 | CLI entry point                                                                                            |
-| `quarkus-rest-client-oidc-filter` | Brings in `OidcClientRequestReactiveFilter` — the reactive filter that transparently injects bearer tokens |
-| `quarkus-rest-client-jackson`     | Reactive REST client with Jackson JSON mapping                                                             |
+| Artifact                      | Purpose                                                                                  |
+|-------------------------------|------------------------------------------------------------------------------------------|
+| `quarkus-picocli`             | CLI entry point with subcommands                                                         |
+| `quarkus-rest-client-jackson` | Reactive REST client with Jackson JSON mapping                                           |
 
 > **Quarkus version note:** This demo is pinned to **Quarkus 3.16.4**.
 > In our tests, upgrading to Quarkus 3.17+ caused the REST client property
@@ -184,7 +223,7 @@ WireMock writes captured interactions to `wiremock-data/mappings/` for offline r
 
 ## References
 
-- [Quarkus OIDC Client & Filters reference guide](https://quarkus.io/guides/security-openid-connect-client-reference)
+- [Quarkus Picocli guide](https://quarkus.io/guides/picocli)
 - [Quarkus REST Client guide](https://quarkus.io/guides/rest-client)
 - [Cloud Foundry API v3 docs](https://v3-apidocs.cloudfoundry.org/)
 - [JBang documentation](https://www.jbang.dev/documentation/guide/latest/)

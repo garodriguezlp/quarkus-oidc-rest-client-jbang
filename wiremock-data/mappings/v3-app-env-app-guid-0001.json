@@ -1,0 +1,25 @@
+{
+  "name": "CF API v3 — GET /v3/apps/app-guid-0001/environment_variables",
+  "request": {
+    "method": "GET",
+    "urlPath": "/v3/apps/app-guid-0001/environment_variables",
+    "headers": {
+      "Authorization": {
+        "matches": "Bearer .+"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "var": {
+        "DATABASE_URL": "postgres://db.internal:5432/myapp",
+        "REDIS_URL": "redis://cache.internal:6379",
+        "APP_ENV": "development"
+      }
+    }
+  }
+}

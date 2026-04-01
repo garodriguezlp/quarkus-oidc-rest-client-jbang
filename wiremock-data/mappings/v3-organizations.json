@@ -18,59 +18,20 @@
       "pagination": {
         "total_results": 2,
         "total_pages": 1,
-        "first": {
-          "href": "http://localhost:9090/v3/organizations?page=1&per_page=50"
-        },
-        "last": {
-          "href": "http://localhost:9090/v3/organizations?page=1&per_page=50"
-        },
-        "next": null,
-        "previous": null
+        "next": null
       },
       "resources": [
         {
-          "guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "guid": "org-guid-0001",
           "name": "my-org",
-          "suspended": false,
           "created_at": "2024-01-15T10:00:00Z",
-          "updated_at": "2024-01-15T10:00:00Z",
-          "relationships": {
-            "quota": {
-              "data": {
-                "guid": "quota-guid-0001"
-              }
-            }
-          },
-          "links": {
-            "self": {
-              "href": "http://localhost:9090/v3/organizations/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-            },
-            "domains": {
-              "href": "http://localhost:9090/v3/organizations/a1b2c3d4-e5f6-7890-abcd-ef1234567890/domains"
-            }
-          }
+          "updated_at": "2024-01-15T10:00:00Z"
         },
         {
-          "guid": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+          "guid": "org-guid-0002",
           "name": "system",
-          "suspended": false,
           "created_at": "2023-06-01T08:00:00Z",
-          "updated_at": "2023-06-01T08:00:00Z",
-          "relationships": {
-            "quota": {
-              "data": {
-                "guid": "quota-guid-0002"
-              }
-            }
-          },
-          "links": {
-            "self": {
-              "href": "http://localhost:9090/v3/organizations/b2c3d4e5-f6a7-8901-bcde-f12345678901"
-            },
-            "domains": {
-              "href": "http://localhost:9090/v3/organizations/b2c3d4e5-f6a7-8901-bcde-f12345678901/domains"
-            }
-          }
+          "updated_at": "2023-06-01T08:00:00Z"
         }
       ]
     }
