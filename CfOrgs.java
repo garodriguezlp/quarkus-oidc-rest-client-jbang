@@ -24,6 +24,13 @@
 //Q:CONFIG quarkus.rest-client."cf-api".url=http://localhost:9090
 
 // ---------------------------------------------------------------------------
+// TLS — trust ALL certificates (self-signed, expired, mismatched hostnames).
+// ⚠️  NOT SAFE FOR PRODUCTION. Use only in dev/test environments where you
+//     control the server and cannot easily install a trusted certificate.
+// ---------------------------------------------------------------------------
+//Q:CONFIG quarkus.tls.trust-all=true
+
+// ---------------------------------------------------------------------------
 // HTTP traffic logging — exposes credentials and tokens; disable when not needed
 // ---------------------------------------------------------------------------
 //Q:CONFIG quarkus.rest-client.logging.scope=request-response
