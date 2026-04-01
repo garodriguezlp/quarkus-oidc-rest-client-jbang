@@ -4,7 +4,6 @@
 
 //DEPS io.quarkus:quarkus-bom:3.16.4@pom
 //DEPS io.quarkus:quarkus-picocli
-//DEPS io.quarkus:quarkus-rest-client-oidc-filter
 //DEPS io.quarkus:quarkus-rest-client-jackson
 
 //Q:CONFIG quarkus.banner.enabled=false
@@ -13,49 +12,36 @@
 //Q:CONFIG quarkus.log.console.level=TRACE
 
 // ---------------------------------------------------------------------------
-// HTTP traffic logging — troubleshooting (shows full req/resp + sensitive data)
+// REST client URLs — default to WireMock on :9090
+// Override via Quarkus env-var convention (property path → uppercase, dots/hyphens → underscores):
+//   export QUARKUS_REST_CLIENT_UAA_URL=https://uaa.cf.example.com
+//   export QUARKUS_REST_CLIENT_CF_API_URL=https://api.cf.example.com
+//   export CF_USERNAME=me@example.com
+//   export CF_PASSWORD=secret
+// Note: ${VAR:default} SmallRye expressions in //Q:CONFIG do not resolve OS env vars.
 // ---------------------------------------------------------------------------
-// REST client: log request + response headers and body
+//Q:CONFIG quarkus.rest-client."uaa".url=http://localhost:9090
+//Q:CONFIG quarkus.rest-client."cf-api".url=http://localhost:9090
+
+// ---------------------------------------------------------------------------
+// HTTP traffic logging — exposes credentials and tokens; disable when not needed
+// ---------------------------------------------------------------------------
 //Q:CONFIG quarkus.rest-client.logging.scope=request-response
 //Q:CONFIG quarkus.rest-client.logging.body-limit=100000
 //Q:CONFIG quarkus.log.category."org.jboss.resteasy.reactive.client.logging".level=DEBUG
-// OIDC client: log token endpoint calls (includes credentials + access token)
 //Q:CONFIG quarkus.log.category."io.quarkus.oidc.client".level=TRACE
 //Q:CONFIG quarkus.log.category."io.quarkus.oidc".level=TRACE
 
-// ---------------------------------------------------------------------------
-// OIDC Client — CF UAA, Resource Owner Password Credentials grant
-//   The OidcClient fetches (and caches/refreshes) the bearer token
-//   automatically before every REST call via OidcClientRequestReactiveFilter.
-//
-//   CF UAA quirk: client_id=cf is a public client (empty client_secret).
-//   Credentials are sent in the POST body (method=post) rather than
-//   Basic-Auth, which is what CF UAA expects.
-// ---------------------------------------------------------------------------
-//Q:CONFIG quarkus.oidc-client.auth-server-url=${CF_UAA_URL:http://localhost:9090}
-//Q:CONFIG quarkus.oidc-client.discovery-enabled=false
-//Q:CONFIG quarkus.oidc-client.token-path=/oauth/token
-//Q:CONFIG quarkus.oidc-client.client-id=cf
-//Q:CONFIG quarkus.oidc-client.credentials.client-secret.value=
-//Q:CONFIG quarkus.oidc-client.credentials.client-secret.method=post
-//Q:CONFIG quarkus.oidc-client.grant.type=password
-//Q:CONFIG quarkus.oidc-client.grant-options.password.username=${CF_USERNAME:admin}
-//Q:CONFIG quarkus.oidc-client.grant-options.password.password=${CF_PASSWORD:admin}
-
-// ---------------------------------------------------------------------------
-// CF REST Client — base URL defaults to WireMock; override via env var:
-//   export QUARKUS_REST_CLIENT_CF_API_URL=https://api.cf.example.com
-// ---------------------------------------------------------------------------
-//Q:CONFIG quarkus.rest-client."cf-api".url=${CF_API_URL:http://localhost:9090}
-
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import io.quarkus.oidc.client.reactive.filter.OidcClientRequestReactiveFilter;
+import jakarta.annotation.Priority;
+import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.*;
+import jakarta.ws.rs.client.ClientRequestContext;
+import jakarta.ws.rs.client.ClientRequestFilter;
 import jakarta.ws.rs.core.MediaType;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.rest.client.annotation.RegisterProvider;
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
@@ -98,15 +84,32 @@ public class CfOrgs implements Runnable {
 }
 
 // ---------------------------------------------------------------------------
-// Declarative REST client
-//   @RegisterProvider(OidcClientRequestReactiveFilter.class) wires in the
-//   Quarkus OIDC client filter. Before each request it:
-//     1. Calls POST /oauth/token with the configured grant parameters
-//     2. Caches the token until it expires, then refreshes automatically
-//     3. Adds "Authorization: Bearer <token>" to the outgoing request
+// UAA token endpoint client
+//   Calls POST /oauth/token with explicit @FormParam values.
+//   client_secret is passed as "" directly — bypasses SmallRye Config's
+//   BuiltInConverter which converts empty strings to null (SRCFG00040).
+// ---------------------------------------------------------------------------
+@RegisterRestClient(configKey = "uaa")
+@Path("/oauth")
+interface UaaClient {
+
+    @POST
+    @Path("/token")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.APPLICATION_JSON)
+    TokenResponse token(
+            @FormParam("grant_type")   String grantType,
+            @FormParam("client_id")    String clientId,
+            @FormParam("client_secret") String clientSecret,
+            @FormParam("username")     String username,
+            @FormParam("password")     String password);
+}
+
+// ---------------------------------------------------------------------------
+// CF API declarative REST client — CfAuthFilter injects Authorization header
 // ---------------------------------------------------------------------------
 @RegisterRestClient(configKey = "cf-api")
-@RegisterProvider(OidcClientRequestReactiveFilter.class)
+@RegisterProvider(CfAuthFilter.class)
 @Path("/v3")
 interface CloudFoundryClient {
 
@@ -117,8 +120,65 @@ interface CloudFoundryClient {
 }
 
 // ---------------------------------------------------------------------------
-// Response model — CF API v3 /v3/organizations
+// Token provider — fetches & caches bearer token from CF UAA
 // ---------------------------------------------------------------------------
+@ApplicationScoped
+class BearerTokenProvider {
+
+    @Inject
+    @RestClient
+    UaaClient uaaClient;
+
+    @ConfigProperty(name = "cf.username", defaultValue = "admin")
+    String username;
+
+    @ConfigProperty(name = "cf.password", defaultValue = "admin")
+    String password;
+
+    private volatile String cachedToken;
+    private volatile long expiresAt;
+
+    public String getToken() {
+        if (cachedToken == null || System.currentTimeMillis() >= expiresAt) {
+            refresh();
+        }
+        return cachedToken;
+    }
+
+    private synchronized void refresh() {
+        // client_secret="" — CF UAA requires the key present with empty value.
+        // Passed as a Java literal so SmallRye Config is never involved.
+        TokenResponse resp = uaaClient.token("password", "cf", "", username, password);
+        cachedToken = resp.accessToken();
+        expiresAt = System.currentTimeMillis() + Math.max(0L, resp.expiresIn() - 30L) * 1000L;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Client request filter — injects Authorization: Bearer <token>
+// ---------------------------------------------------------------------------
+@ApplicationScoped
+@Priority(jakarta.ws.rs.Priorities.AUTHENTICATION)
+class CfAuthFilter implements ClientRequestFilter {
+
+    @Inject
+    BearerTokenProvider tokenProvider;
+
+    @Override
+    public void filter(ClientRequestContext ctx) {
+        ctx.getHeaders().putSingle("Authorization", "Bearer " + tokenProvider.getToken());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Response models
+// ---------------------------------------------------------------------------
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+record TokenResponse(
+        @JsonProperty("access_token") String accessToken,
+        @JsonProperty("expires_in") long expiresIn) {
+}
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 record OrganizationsResponse(
