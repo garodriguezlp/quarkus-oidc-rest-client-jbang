@@ -1,6 +1,8 @@
 ///usr/bin/env jbang "$0" "$@" ; exit $?
 
 //JAVA 17+
+//COMPILE_OPTIONS -encoding UTF-8
+//RUNTIME_OPTIONS -Dfile.encoding=UTF-8
 
 //DEPS io.quarkus:quarkus-bom:3.16.4@pom
 //DEPS io.quarkus:quarkus-picocli
