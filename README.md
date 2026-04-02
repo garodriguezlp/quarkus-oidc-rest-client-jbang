@@ -1,157 +1,91 @@
-# quarkus-oidc-rest-client-jbang
+# cf_env
 
-A self-contained educational POC that demonstrates how to wire a **Quarkus declarative REST client with automatic OIDC
-bearer-token injection**, packaged as a single Java file runnable via [JBang](https://www.jbang.dev/) — no build tool,
-no project scaffolding.
+A Cloud Foundry operator tool for inspecting apps and extracting environment variables. It runs as a single Java file
+via [JBang](https://www.jbang.dev/) — no build tool, no project scaffolding required.
 
-The app targets the [Cloud Foundry API v3](https://v3-apidocs.cloudfoundry.org/): it authenticates against CF UAA using
-the Resource Owner Password Credentials grant and lists organizations. [WireMock](https://wiremock.org/) stands in for
-the live CF environment so the demo works fully offline.
-
----
-
-## Concepts
-
-| Layer                       | What it demonstrates                                                                                                                                                            |
-|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **JBang**                   | Running a Quarkus app from a single `.java` file with zero project scaffolding                                                                                                  |
-| **Quarkus OIDC Client**     | Acquiring and auto-refreshing a bearer token using the `password` grant                                                                                                         |
-| **Declarative REST Client** | `@RegisterRestClient` + `@RegisterProvider(OidcClientRequestReactiveFilter.class)` — the framework injects `Authorization: Bearer …` automatically before each outgoing request |
-| **WireMock**                | Stubbing both the UAA token endpoint (`POST /oauth/token`) and the CF API (`GET /v3/organizations`) without needing a live CF instance                                          |
+Built on **Quarkus** (Picocli + declarative REST client), it authenticates against CF UAA using the Resource Owner
+Password Credentials grant, injects the bearer token automatically on every request via a `ClientRequestFilter`, and
+handles CF API pagination generically. [WireMock](https://wiremock.org/) stubs ship with the repo for fully offline
+local runs.
 
 ---
 
-## Prerequisites
+## Commands
 
-- **Java 17+**
-- **Internet access** on first run (JBang downloads Quarkus/WireMock JARs from Maven Central once, then caches them)
+### `apps` — list all applications
 
-No JBang installation required — the repository ships with
-a [JBang wrapper](https://www.jbang.dev/documentation/guide/latest/usage.html#jbang-wrapper) (`jbang` / `jbang.cmd` /
-`jbang.ps1`) that bootstraps JBang automatically.
+Fetches orgs, spaces, and apps in parallel and prints a joined table.
+
+```bash
+./jbang cf_env.java apps
+```
+
+```
+ORG                  SPACE           APP NAME                       UUID
+my-org               dev             my-app                         app-guid-0001
+my-org               staging         worker                         app-guid-0003
+system               prod            api                            app-guid-0002
+```
+
+### `env` — export app environment variables
+
+Writes a `.env` file for the given app UUID.
+
+```bash
+./jbang cf_env.java env <app-uuid>
+./jbang cf_env.java env <app-uuid> --output /path/to/output.env
+```
+
+Default output file: `{app-name}-{uuid}.env` in the current directory.
+
+```
+APP_ENV='development'
+DATABASE_URL='postgres://db.internal:5432/myapp'
+REDIS_URL='redis://cache.internal:6379'
+```
 
 ---
 
-## Quick Start
+## Running against a real CF instance
 
-### 1 — Start WireMock (terminal 1)
-
-```bash
-bash start-wiremock.sh          # Linux / macOS (or Git Bash on Windows)
-```
-
-The script starts WireMock from local stubs on port `9090`.
-
-Alternative (without the script):
+Set the following environment variables before invoking the tool:
 
 ```bash
-./jbang org.wiremock:wiremock-standalone:3.5.3 \
-  --port 9090 \
-  --root-dir ./wiremock-data \
-  --verbose
-```
-
-WireMock starts on **port 9090** and loads pre-built stubs from `wiremock-data/mappings/`:
-
-| Stub                    | What it returns                                   |
-|-------------------------|---------------------------------------------------|
-| `POST /oauth/token`     | A fake `access_token` as a CF UAA would           |
-| `GET /v3/organizations` | Two fake orgs; requires `Authorization: Bearer …` |
-
-Watch the console for matched request logs — these confirm the full auth dance is happening.
-
-### 2 — Run the app (terminal 2)
-
-```bash
-./jbang CfOrgs.java       # Linux / macOS
-jbang.cmd CfOrgs.java     # Windows (cmd)
-```
-
-Expected output:
-
-```
-Fetching organizations from Cloud Foundry API...
-
-Total: 2 organization(s) across 1 page(s)
-
-  a1b2c3d4-e5f6-7890-abcd-ef1234567890  my-org
-  b2c3d4e5-f6a7-8901-bcde-f12345678901  system
-```
-
-After the first run, JBang caches the compiled Quarkus app — subsequent runs start in seconds.
-
----
-
-## Pointing to a Real CF Instance
-
-Override the defaults via environment variables before running the app:
-
-```bash
-export QUARKUS_OIDC_CLIENT_AUTH_SERVER_URL=https://uaa.cf.example.com
-export QUARKUS_OIDC_CLIENT_GRANT_OPTIONS_PASSWORD_USERNAME=me@example.com
-export QUARKUS_OIDC_CLIENT_GRANT_OPTIONS_PASSWORD_PASSWORD=mysecret
+export QUARKUS_REST_CLIENT_UAA_URL=https://uaa.cf.example.com
 export QUARKUS_REST_CLIENT_CF__API_URL=https://api.cf.example.com
+export CF_USERNAME=me@example.com
+export CF_PASSWORD=mysecret
 
-./jbang CfOrgs.java
+./jbang cf_env.java apps
+./jbang cf_env.java env <app-uuid>
 ```
 
-> **Note on the double underscore in `CF__API_URL`:** SmallRye Config maps hyphens in config key segments to `__` in
-> environment variable names. The config key `cf-api` → `CF__API`.
+> `CF__API_URL` uses a double underscore because SmallRye Config maps hyphens in config key segments to `__` in
+> environment variable names (`cf-api` → `CF__API`).
 
 ---
 
-## How It Works
+## Running locally with WireMock
 
-```
-./jbang CfOrgs.java
-        │
-        └─► Quarkus boots (picocli command)
-                │
-                └─► @Inject @RestClient CloudFoundryClient.getOrganizations()
-                          │
-                          └─► OidcClientRequestReactiveFilter intercepts
-                                    │
-                                    ├─► POST /oauth/token  (grant_type=password, client_id=cf)
-                                    │         └─► receives access_token
-                                    │
-                                    └─► GET /v3/organizations
-                                              Header: Authorization: Bearer <token>
-                                              └─► parses JSON → prints orgs
+Pre-built stubs covering all required endpoints are included under `wiremock-data/mappings/`.
+
+**Terminal 1 — start WireMock:**
+
+```bash
+bash start-wiremock.sh
 ```
 
-### CF UAA Quirks
+**Terminal 2 — run the tool:**
 
-CF's UAA uses a public client (`client_id=cf`, empty `client_secret`). Credentials are sent in the POST body (
-`method=post`) rather than HTTP Basic Auth. The Quarkus OIDC client handles this via:
-
-```
-quarkus.oidc-client.credentials.client-secret.method=post
-quarkus.oidc-client.credentials.client-secret.value=   ← intentionally empty
+```bash
+./jbang cf_env.java apps
+./jbang cf_env.java env app-guid-0001
 ```
 
----
+WireMock listens on port `9090`, which matches the default REST client URLs in `cf_env.java`.
 
-## Project Structure
-
-```
-CfOrgs.java                      # The entire application — JBang entry point
-jbang                            # JBang wrapper (Linux / macOS)
-jbang.cmd                        # JBang wrapper (Windows cmd)
-jbang.ps1                        # JBang wrapper (PowerShell)
-.jbang/jbang.jar                 # Bundled JBang bootstrap JAR
-start-wiremock.sh                # Starts WireMock with pre-built stubs
-wiremock-data/
-  mappings/
-    oauth-token.json             # Stub: POST /oauth/token → fake bearer token
-    v3-organizations.json        # Stub: GET /v3/organizations → two fake orgs
-```
-
----
-
-## WireMock Recording Mode
-
-If you have a real CF environment and want to capture live traffic instead of using the pre-built stubs, edit
-`start-wiremock.sh` and switch to recording mode:
+To record live traffic from a real CF environment instead of using the pre-built stubs, switch `start-wiremock.sh` to
+recording mode:
 
 ```bash
 VERSION=3.5.3
@@ -163,28 +97,21 @@ VERSION=3.5.3
   --verbose
 ```
 
-WireMock writes captured interactions to `wiremock-data/mappings/` for offline replay.
-
 ---
 
-## Key Dependencies
+## Prerequisites
 
-| Artifact                          | Purpose                                                                                                    |
-|-----------------------------------|------------------------------------------------------------------------------------------------------------|
-| `quarkus-picocli`                 | CLI entry point                                                                                            |
-| `quarkus-rest-client-oidc-filter` | Brings in `OidcClientRequestReactiveFilter` — the reactive filter that transparently injects bearer tokens |
-| `quarkus-rest-client-jackson`     | Reactive REST client with Jackson JSON mapping                                                             |
+- Java 17+
+- Internet access on first run (JBang fetches dependencies from Maven Central and caches them)
 
-> **Quarkus version note:** This demo is pinned to **Quarkus 3.16.4**.
-> In our tests, upgrading to Quarkus 3.17+ caused the REST client property
-> `quarkus.rest-client."cf-api".url` to stop working in this setup.
-> The exact root cause is currently unknown.
+The repo ships with a [JBang wrapper](https://www.jbang.dev/documentation/guide/latest/usage.html#jbang-wrapper)
+(`jbang` / `jbang.cmd` / `jbang.ps1`) — no separate JBang installation needed.
 
 ---
 
 ## References
 
-- [Quarkus OIDC Client & Filters reference guide](https://quarkus.io/guides/security-openid-connect-client-reference)
+- [Quarkus Picocli guide](https://quarkus.io/guides/picocli)
 - [Quarkus REST Client guide](https://quarkus.io/guides/rest-client)
 - [Cloud Foundry API v3 docs](https://v3-apidocs.cloudfoundry.org/)
 - [JBang documentation](https://www.jbang.dev/documentation/guide/latest/)
