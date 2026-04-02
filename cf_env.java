@@ -1,6 +1,7 @@
 ///usr/bin/env jbang "$0" "$@" ; exit $?
 
 //JAVA 17+
+
 //COMPILE_OPTIONS -encoding UTF-8
 //RUNTIME_OPTIONS -Dfile.encoding=UTF-8
 
@@ -11,7 +12,7 @@
 //Q:CONFIG quarkus.banner.enabled=false
 //Q:CONFIG quarkus.log.level=WARN
 //Q:CONFIG quarkus.log.min-level=TRACE
-//Q:CONFIG quarkus.log.console.level=TRACE
+//Q:CONFIG quarkus.log.console.level=WARN
 
 // ---------------------------------------------------------------------------
 // REST client URLs — default to WireMock on :9090
@@ -20,7 +21,6 @@
 //   export QUARKUS_REST_CLIENT_CF__API_URL=https://api.cf.example.com
 //   export CF_USERNAME=me@example.com
 //   export CF_PASSWORD=secret
-// Note: ${VAR:default} SmallRye expressions in //Q:CONFIG do not resolve OS env vars.
 // ---------------------------------------------------------------------------
 //Q:CONFIG quarkus.rest-client."uaa".url=http://localhost:9090
 //Q:CONFIG quarkus.rest-client."cf-api".url=http://localhost:9090
@@ -43,8 +43,11 @@
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.quarkus.arc.Unremovable;
+import io.quarkus.picocli.runtime.annotations.TopCommand;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Dependent;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.client.ClientRequestContext;
@@ -68,40 +71,38 @@ import java.util.function.IntFunction;
 import java.util.stream.Collectors;
 
 /**
- * Entry point — CF operator tool to inspect apps and fetch environment variables.
+ * Top-level Picocli command for Cloud Foundry v3 operations.
  *
- * Run (with WireMock already started on :9090):
- *   jbang CfEnv.java apps
- *   jbang CfEnv.java env <app-uuid>
- *
- * Point to a real CF instance:
- *   QUARKUS_REST_CLIENT_UAA_URL=https://uaa.cf.example.com
- *   QUARKUS_REST_CLIENT_CF__API_URL=https://api.cf.example.com
- *   CF_USERNAME=me@example.com CF_PASSWORD=secret
- *   jbang CfEnv.java apps
+ * <p>Provides the {@code apps} and {@code env} subcommands.</p>
  */
+@TopCommand
 @CommandLine.Command(
     name = "CfEnv",
     mixinStandardHelpOptions = true,
-    description = "Cloud Foundry v3 CLI tool for inspecting apps and environment variables.")
-public class CfEnv implements Runnable {
+    description = "Cloud Foundry v3 CLI tool for inspecting apps and environment variables.",
+    subcommands = {AppsCommand.class, EnvCommand.class})
+class CfEnv {
+
+}
+
+@Dependent
+@Unremovable
+@CommandLine.Command(name = "apps", mixinStandardHelpOptions = true,
+    description = "List all applications across all orgs and spaces.")
+class AppsCommand implements Runnable {
 
     @Inject
     @RestClient
     CloudFoundryClient cfClient;
 
-    // ---------------------------------------------------------------------------
-    // apps — list all applications across all orgs and spaces
-    // ---------------------------------------------------------------------------
-    @CommandLine.Command(name = "apps", mixinStandardHelpOptions = true,
-        description = "List all applications across all orgs and spaces.")
-    public void apps() {
+    @Override
+    public void run() {
         CompletableFuture<List<Organization>> orgsFuture =
-            CompletableFuture.supplyAsync(() -> paginate(p -> cfClient.getOrganizations(1000, p)));
+            CompletableFuture.supplyAsync(() -> PaginationSupport.paginate(p -> cfClient.getOrganizations(1000, p)));
         CompletableFuture<List<Space>> spacesFuture =
-            CompletableFuture.supplyAsync(() -> paginate(p -> cfClient.getSpaces(1000, p)));
+            CompletableFuture.supplyAsync(() -> PaginationSupport.paginate(p -> cfClient.getSpaces(1000, p)));
         CompletableFuture<List<App>> appsFuture =
-            CompletableFuture.supplyAsync(() -> paginate(p -> cfClient.getApps(1000, p)));
+            CompletableFuture.supplyAsync(() -> PaginationSupport.paginate(p -> cfClient.getApps(1000, p)));
 
         List<Organization> orgs = orgsFuture.join();
         List<Space> spaces = spacesFuture.join();
@@ -124,19 +125,27 @@ public class CfEnv implements Runnable {
                 System.out.printf("%-20s %-15s %-30s %s%n", orgName, spaceName, app.name(), app.guid());
             });
     }
+}
 
-    // ---------------------------------------------------------------------------
-    // env — export app environment variables to a .env file
-    // ---------------------------------------------------------------------------
-    @CommandLine.Command(name = "env", mixinStandardHelpOptions = true,
-        description = "Export app environment variables to a .env file.")
-    public void env(
-            @CommandLine.Parameters(index = "0", description = "The app UUID.")
-            String appGuid,
-            @CommandLine.Option(names = {"--output", "-o"},
-                description = "Output file path (default: {app-name}-{uuid}.env).")
-            String outputFile) {
+@Dependent
+@Unremovable
+@CommandLine.Command(name = "env", mixinStandardHelpOptions = true,
+    description = "Export app environment variables to a .env file.")
+class EnvCommand implements Runnable {
 
+    @CommandLine.Parameters(index = "0", description = "The app UUID.")
+    String appGuid;
+
+    @CommandLine.Option(names = {"--output", "-o"},
+        description = "Output file path (default: {app-name}-{uuid}.env).")
+    String outputFile;
+
+    @Inject
+    @RestClient
+    CloudFoundryClient cfClient;
+
+    @Override
+    public void run() {
         App app = cfClient.getApp(appGuid);
         AppEnvResponse envResponse = cfClient.getAppEnvironmentVariables(appGuid);
 
@@ -145,20 +154,20 @@ public class CfEnv implements Runnable {
         try (PrintWriter writer = new PrintWriter(new FileWriter(path))) {
             envResponse.var().entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
-                .forEach(e -> writer.printf("%s=%s%n", e.getKey(), e.getValue()));
+                .forEach(e -> writer.printf("%s='%s'%n", e.getKey(), e.getValue()));
         } catch (IOException e) {
             throw new RuntimeException("Failed to write .env file: " + e.getMessage(), e);
         }
 
         System.out.println("Written to " + path);
     }
+}
 
-    @Override
-    public void run() {
-        System.err.println("Please specify a subcommand: apps, env. Use --help for usage.");
+class PaginationSupport {
+    private PaginationSupport() {
     }
 
-    private static <R> List<R> paginate(IntFunction<? extends PagedResponse<R>> fetcher) {
+    static <R> List<R> paginate(IntFunction<? extends PagedResponse<R>> fetcher) {
         List<R> all = new ArrayList<>();
         int page = 1;
         PagedResponse<R> response;
@@ -305,11 +314,11 @@ record TokenResponse(
 record Pagination(
         @JsonProperty("total_results") int totalResults,
         @JsonProperty("total_pages")   int totalPages,
-        @JsonProperty("next")          HrefLink next) {
-}
+    @JsonProperty("next")          Pagination.NextLink next) {
 
-@JsonIgnoreProperties(ignoreUnknown = true)
-record HrefLink(@JsonProperty("href") String href) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record NextLink(@JsonProperty("href") String href) {
+    }
 }
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -334,12 +343,20 @@ record SpacesResponse(Pagination pagination, List<Space> resources)
 record Space(
         String guid,
         String name,
-        SpaceRelationships relationships) {
-}
+    Space.Relationships relationships) {
 
-@JsonIgnoreProperties(ignoreUnknown = true)
-record SpaceRelationships(
-        @JsonProperty("organization") RelationshipData organization) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Relationships(
+        @JsonProperty("organization") OrganizationRelationship organization) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record OrganizationRelationship(@JsonProperty("data") Data data) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Data(@JsonProperty("guid") String guid) {
+    }
 }
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -351,20 +368,19 @@ record AppsResponse(Pagination pagination, List<App> resources)
 record App(
         String guid,
         String name,
-        AppRelationships relationships) {
-}
+    App.Relationships relationships) {
 
-@JsonIgnoreProperties(ignoreUnknown = true)
-record AppRelationships(
-        @JsonProperty("space") RelationshipData space) {
-}
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Relationships(@JsonProperty("space") SpaceRelationship space) {
+    }
 
-@JsonIgnoreProperties(ignoreUnknown = true)
-record RelationshipData(@JsonProperty("data") GuidData data) {
-}
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record SpaceRelationship(@JsonProperty("data") Data data) {
+    }
 
-@JsonIgnoreProperties(ignoreUnknown = true)
-record GuidData(@JsonProperty("guid") String guid) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Data(@JsonProperty("guid") String guid) {
+    }
 }
 
 @JsonIgnoreProperties(ignoreUnknown = true)

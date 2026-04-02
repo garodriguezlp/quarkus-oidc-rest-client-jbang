@@ -12,8 +12,8 @@
 #   v3-app-env-app-guid-0001.json GET  /v3/apps/app-guid-0001/environment_variables — returns env vars
 #
 # Once WireMock is running, open a second terminal and run the app:
-#   jbang CfEnv.java apps
-#   jbang CfEnv.java env app-guid-0001
+#   jbang cf_env.java apps
+#   jbang cf_env.java env app-guid-0001
 #
 # All matched/unmatched requests are printed to stdout (--verbose).
 # Check the logs to confirm:
