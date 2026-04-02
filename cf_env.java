@@ -11,7 +11,7 @@
 
 //Q:CONFIG quarkus.banner.enabled=false
 //Q:CONFIG quarkus.log.level=WARN
-//Q:CONFIG quarkus.log.min-level=TRACE
+//Q:CONFIG quarkus.log.min-level=WARN
 //Q:CONFIG quarkus.log.console.level=WARN
 
 // ---------------------------------------------------------------------------
@@ -35,11 +35,10 @@
 // ---------------------------------------------------------------------------
 // HTTP traffic logging — exposes credentials and tokens; disable when not needed
 // ---------------------------------------------------------------------------
-//Q:CONFIG quarkus.rest-client.logging.scope=request-response
-//Q:CONFIG quarkus.rest-client.logging.body-limit=100000
-//Q:CONFIG quarkus.log.category."org.jboss.resteasy.reactive.client.logging".level=DEBUG
-//Q:CONFIG quarkus.log.category."io.quarkus.oidc.client".level=TRACE
-//Q:CONFIG quarkus.log.category."io.quarkus.oidc".level=TRACE
+// Enable temporarily for diagnostics only by removing the "DIAG:" prefix.
+// DIAG: //Q:CONFIG quarkus.rest-client.logging.scope=request-response
+// DIAG: //Q:CONFIG quarkus.rest-client.logging.body-limit=100000
+// DIAG: //Q:CONFIG quarkus.log.category."org.jboss.resteasy.reactive.client.logging".level=DEBUG
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -49,7 +48,15 @@ import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.*;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.FormParam;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Priorities;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.client.ClientRequestContext;
 import jakarta.ws.rs.client.ClientRequestFilter;
 import jakarta.ws.rs.core.MediaType;
@@ -57,7 +64,9 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.rest.client.annotation.RegisterProvider;
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
-import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
+import picocli.CommandLine.Parameters;
 
 import java.io.FileWriter;
 import java.io.IOException;
@@ -76,7 +85,7 @@ import java.util.stream.Collectors;
  * <p>Provides the {@code apps} and {@code env} subcommands.</p>
  */
 @TopCommand
-@CommandLine.Command(
+@Command(
     name = "CfEnv",
     mixinStandardHelpOptions = true,
     description = "Cloud Foundry v3 CLI tool for inspecting apps and environment variables.",
@@ -87,7 +96,7 @@ class CfEnv {
 
 @Dependent
 @Unremovable
-@CommandLine.Command(name = "apps", mixinStandardHelpOptions = true,
+@Command(name = "apps", mixinStandardHelpOptions = true,
     description = "List all applications across all orgs and spaces.")
 class AppsCommand implements Runnable {
 
@@ -129,14 +138,14 @@ class AppsCommand implements Runnable {
 
 @Dependent
 @Unremovable
-@CommandLine.Command(name = "env", mixinStandardHelpOptions = true,
+@Command(name = "env", mixinStandardHelpOptions = true,
     description = "Export app environment variables to a .env file.")
 class EnvCommand implements Runnable {
 
-    @CommandLine.Parameters(index = "0", description = "The app UUID.")
+    @Parameters(index = "0", description = "The app UUID.")
     String appGuid;
 
-    @CommandLine.Option(names = {"--output", "-o"},
+    @Option(names = {"--output", "-o"},
         description = "Output file path (default: {app-name}-{uuid}.env).")
     String outputFile;
 
@@ -148,18 +157,30 @@ class EnvCommand implements Runnable {
     public void run() {
         App app = cfClient.getApp(appGuid);
         AppEnvResponse envResponse = cfClient.getAppEnvironmentVariables(appGuid);
+        Map<String, String> vars = envResponse.var() != null ? envResponse.var() : Map.of();
 
         String path = outputFile != null ? outputFile : app.name() + "-" + appGuid + ".env";
 
         try (PrintWriter writer = new PrintWriter(new FileWriter(path))) {
-            envResponse.var().entrySet().stream()
+            vars.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
-                .forEach(e -> writer.printf("%s='%s'%n", e.getKey(), e.getValue()));
+                .forEach(e -> writer.printf("%s='%s'%n", e.getKey(), escapeEnvValue(e.getValue())));
         } catch (IOException e) {
             throw new RuntimeException("Failed to write .env file: " + e.getMessage(), e);
         }
 
         System.out.println("Written to " + path);
+    }
+
+    private static String escapeEnvValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .replace("\n", "\\n")
+            .replace("'", "'\"'\"'");
     }
 }
 
@@ -170,11 +191,20 @@ class PaginationSupport {
     static <R> List<R> paginate(IntFunction<? extends PagedResponse<R>> fetcher) {
         List<R> all = new ArrayList<>();
         int page = 1;
-        PagedResponse<R> response;
-        do {
-            response = fetcher.apply(page++);
-            all.addAll(response.resources());
-        } while (response.pagination().next() != null);
+        while (true) {
+            PagedResponse<R> response = fetcher.apply(page++);
+            if (response == null) {
+                break;
+            }
+
+            List<R> resources = response.resources() != null ? response.resources() : List.of();
+            all.addAll(resources);
+
+            Pagination pagination = response.pagination();
+            if (pagination == null || pagination.next() == null) {
+                break;
+            }
+        }
         return all;
     }
 }
@@ -280,7 +310,7 @@ class BearerTokenProvider {
 // Client request filter — injects Authorization: Bearer <token>
 // ---------------------------------------------------------------------------
 @ApplicationScoped
-@Priority(jakarta.ws.rs.Priorities.AUTHENTICATION)
+@Priority(Priorities.AUTHENTICATION)
 class CfAuthFilter implements ClientRequestFilter {
 
     @Inject
@@ -314,7 +344,7 @@ record TokenResponse(
 record Pagination(
         @JsonProperty("total_results") int totalResults,
         @JsonProperty("total_pages")   int totalPages,
-    @JsonProperty("next")          Pagination.NextLink next) {
+        @JsonProperty("next")          Pagination.NextLink next) {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record NextLink(@JsonProperty("href") String href) {
@@ -343,11 +373,11 @@ record SpacesResponse(Pagination pagination, List<Space> resources)
 record Space(
         String guid,
         String name,
-    Space.Relationships relationships) {
+        Space.Relationships relationships) {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Relationships(
-        @JsonProperty("organization") OrganizationRelationship organization) {
+            @JsonProperty("organization") OrganizationRelationship organization) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -368,7 +398,7 @@ record AppsResponse(Pagination pagination, List<App> resources)
 record App(
         String guid,
         String name,
-    App.Relationships relationships) {
+        App.Relationships relationships) {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Relationships(@JsonProperty("space") SpaceRelationship space) {
